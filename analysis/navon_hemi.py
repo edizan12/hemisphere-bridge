@@ -1,23 +1,25 @@
 #!/usr/bin/env python
 """
-navon_hemi.py - Iki ozdes "yarimkure" agi + dar kopru deneyi (Asama 1-3)
+navon_hemi.py - Two identical "hemisphere" networks joined by a narrow bridge.
 
-Soru: Ozdes mimarili iki ag, dar bir kopru uzerinden birkac adim mesajlasarak
-ortak bir cikis basini egitirse, kendiliginden gorev ayrismasi (kuresel/yerel)
-olusur mu? Kopru genisligi, gecikme, gurultu ve ozdes baslangic bunu nasil etkiler?
-Hasar sonrasi telafide hasara duyarli bir kapi, sabit kopruden daha mi iyi?
+Question: if two identically-built networks exchange messages over a narrow bridge
+for a few steps and are trained with one shared output head, does a division of
+labour (global vs. local) emerge spontaneously? How do bridge width, delay, noise
+and identical initialisation affect it? After damage, does a severity-aware gate
+compensate better than a fixed bridge?
 
-Kullanim (Colab veya yerel):
-    python navon_hemi.py --exp smoke                  # ~2-3 dk, boru hatti testi
-    python navon_hemi.py --exp phase1 --seeds 5       # kopru genisligi taramasi
-    python navon_hemi.py --exp symmetry --seeds 5     # simetri kiran nedir?
-    python navon_hemi.py --exp phase3 --seeds 5       # hasar / telafi kapisi
-Sonuclar --out klasorune results_<exp>.json olarak, her kosudan sonra kaydedilir.
+Usage (Colab or local):
+    python navon_hemi.py --exp smoke                  # quick pipeline check
+    python navon_hemi.py --exp phase1 --seeds 5       # bridge-width sweep
+    python navon_hemi.py --exp symmetry --seeds 5     # what breaks the symmetry?
+    python navon_hemi.py --exp symcheck --seeds 3 --deterministic
+    python navon_hemi.py --exp phase3 --seeds 5       # lesion / compensation gate
+Results are written to <out>/results_<exp>.json after every run.
 """
 import argparse, json, os, sys, time, warnings
 from dataclasses import dataclass, asdict, replace
 
-if "--deterministic" in sys.argv:   # torch import'tan ONCE ayarlanmali
+if "--deterministic" in sys.argv:   # must be set BEFORE importing torch
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 import numpy as np
@@ -26,13 +28,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 dev = "cuda" if torch.cuda.is_available() else "cpu"
-GRID, CELL = 6, 8          # kuresel sekil 6x6 hucre, her hucrede 8x8 yerel rakam -> 48x48
+GRID, CELL = 6, 8          # global shape = 6x6 cells, each cell holds an 8x8 local digit -> 48x48
 
 
 # --------------------------------------------------------------------------
-# VERI: MNIST'ten Navon figurleri (buyuk rakam, kucuk rakamlardan olusur)
-# Kuresel ve yerel etiket BAGIMSIZ secilir; hangisinin hangi yarimkureye
-# gidecegi hakkinda hicbir ipucu verilmez.
+# DATA: Navon figures built from MNIST (a large digit made of small digits).
+# The global and local labels are drawn independently; nothing tells the model
+# which hemisphere should handle which label.
 # --------------------------------------------------------------------------
 def load_mnist(root):
     from torchvision import datasets
@@ -68,16 +70,16 @@ def build_data(args):
 # --------------------------------------------------------------------------
 @dataclass
 class Cfg:
-    d: int = 64            # her yarimkurenin gizli boyutu
-    k: int = 4             # kopru genisligi; 0 = kopru yok; d = "tam" kopru
-    T: int = 4             # mesajlasma adimi
-    dLR: int = 1           # L->R gecikmesi (adim, >=1)
-    dRL: int = 1           # R->L gecikmesi
-    noise: float = 0.0     # egitimde gizli duruma bagimsiz gurultu
-    tied: bool = False     # True: iki yarimkure BIREBIR ayni agirliklarla baslar
-    gate: str = "fixed"    # fixed | scalar | sev  (kopru kazanc kapisi)
-    single: bool = False   # kontrol: tek buyuk ag (kopru yok)
-    lesion_aug: bool = False   # egitimde rastgele hasar uygula
+    d: int = 64            # hidden size of each hemisphere
+    k: int = 4             # bridge width; 0 = no bridge; d = "full" bridge
+    T: int = 4             # number of message-passing steps
+    dLR: int = 1           # L->R delay (steps, >= 1)
+    dRL: int = 1           # R->L delay
+    noise: float = 0.0     # independent noise added to the hidden state during training
+    tied: bool = False     # True: both hemispheres start with exactly the same weights
+    gate: str = "fixed"    # fixed | scalar | sev  (bridge gain gate)
+    single: bool = False   # control: one large network (no bridge)
+    lesion_aug: bool = False   # apply random damage during training
     epochs: int = 12
     bs: int = 256
     lr: float = 2e-3
@@ -97,7 +99,7 @@ class Enc(nn.Module):
 
 
 class Bridge(nn.Module):
-    """d -> k -> d dogrusal darbogaz: mesaj k-boyutlu bir altuzayda kalir."""
+    """Linear d -> k -> d bottleneck: the message is confined to a k-dimensional subspace."""
     def __init__(s, d, k):
         super().__init__()
         s.down, s.up = nn.Linear(d, k), nn.Linear(k, d)
@@ -107,7 +109,7 @@ class Bridge(nn.Module):
 
 
 class Gate(nn.Module):
-    """Kopru kazanclari (L->R, R->L). 'sev' modunda hasar siddetini girdi olarak alir."""
+    """Bridge gains (L->R, R->L). In 'sev' mode the damage severity is the input."""
     def __init__(s, mode):
         super().__init__()
         s.mode = mode
@@ -188,8 +190,8 @@ class Net(nn.Module):
         hist = [[hL], [hR]]
         gLR, gRL = s.gate(sevL, sevR)
         for t in range(1, s.c.T + 1):
-            mR_in = s._msg(hist[0], t, s.c.dLR, s.brLR, gLR, B, dv)   # L'den R'ye
-            mL_in = s._msg(hist[1], t, s.c.dRL, s.brRL, gRL, B, dv)   # R'den L'ye
+            mR_in = s._msg(hist[0], t, s.c.dLR, s.brLR, gLR, B, dv)   # from L to R
+            mL_in = s._msg(hist[1], t, s.c.dRL, s.brRL, gRL, B, dv)   # from R to L
             nL = s._post(s.cellL(torch.cat([zL, mL_in], 1), hist[0][-1]), mL)
             nR = s._post(s.cellR(torch.cat([zR, mR_in], 1), hist[1][-1]), mR)
             hist[0].append(nL)
@@ -204,7 +206,7 @@ def n_params(net):
 
 
 # --------------------------------------------------------------------------
-# EGITIM
+# TRAINING
 # --------------------------------------------------------------------------
 def train_run(c: Cfg, data, seed):
     torch.manual_seed(seed)
@@ -222,8 +224,8 @@ def train_run(c: Cfg, data, seed):
             mL = mR = sevL = sevR = None
             if c.lesion_aug:
                 sev = torch.rand(B, device=dev) * 0.9
-                sev = sev * (torch.rand(B, device=dev) > 0.3).float()      # %30 saglam
-                side = (torch.rand(B, device=dev) < 0.5).float()          # 1 -> L hasarli
+                sev = sev * (torch.rand(B, device=dev) > 0.3).float()      # 30% undamaged
+                side = (torch.rand(B, device=dev) < 0.5).float()          # 1 -> L is damaged
                 sevL, sevR = sev * side, sev * (1 - side)
                 mL = (torch.rand(B, net.d, device=dev) >= sevL[:, None]).float()
                 mR = (torch.rand(B, net.d, device=dev) >= sevR[:, None]).float()
@@ -236,7 +238,7 @@ def train_run(c: Cfg, data, seed):
 
 
 # --------------------------------------------------------------------------
-# OLCUMLER
+# MEASUREMENTS
 # --------------------------------------------------------------------------
 def make_mask(d, frac, seed=0):
     m = torch.ones(1, d)
@@ -300,9 +302,9 @@ def analyze(net, c: Cfg, data):
         r["pRg"] = probe(tR, gtr[:ntp], hR, gte)
         r["pRl"] = probe(tR, ltr[:ntp], hR, lte)
         s = ((r["pLg"] - r["pLl"]) - (r["pRg"] - r["pRl"])) / 2 / 0.9
-        r["SIs"], r["SI"] = s, abs(s)          # SIs>0: L daha "kuresel", R daha "yerel"
+        r["SIs"], r["SI"] = s, abs(s)          # SIs > 0: L is more "global", R more "local"
         r["cka"] = linear_cka(hL[:2000], hR[:2000])
-    # lezyon: bir yarimkurenin gizli birimlerinin bir kismi susturulur
+    # lesion: silence a fraction of one hemisphere's hidden units
     les = {}
     for f in FRACS:
         for side in ("L", "R"):
@@ -327,7 +329,7 @@ def analyze(net, c: Cfg, data):
 
 
 # --------------------------------------------------------------------------
-# DENEYLER
+# EXPERIMENTS
 # --------------------------------------------------------------------------
 def exp_configs(name, base: Cfg):
     if name == "smoke":
@@ -346,7 +348,7 @@ def exp_configs(name, base: Cfg):
                     cs.append((f"tied={int(tied)} noise={noise} delay={dl[0]}/{dl[1]}",
                                replace(base, tied=tied, noise=noise, dLR=dl[0], dRL=dl[1])))
         return cs
-    if name == "symcheck":      # tam simetrik baslangic: SI=0, CKA=1 beklenir
+    if name == "symcheck":      # fully symmetric start: expect SI=0, CKA=1
         return [("tied noise=0 delay=1/1", replace(base, tied=True, noise=0.0, dLR=1, dRL=1))]
     if name == "phase3":
         return [(f"aug={int(a)} gate={g}", replace(base, lesion_aug=a, gate=g))
@@ -378,13 +380,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--exp", default="smoke", choices=["smoke", "phase1", "symmetry", "symcheck", "phase3"])
     ap.add_argument("--deterministic", action="store_true",
-                    help="GPU sayisal gurultusunu kapatir (yavas); symcheck icin kullan")
+                    help="disable GPU numerical noise (slower); use for symcheck")
     ap.add_argument("--seeds", type=int, default=3)
     ap.add_argument("--epochs", type=int, default=None)
     ap.add_argument("--ntrain", type=int, default=20000)
     ap.add_argument("--ntest", type=int, default=5000)
     ap.add_argument("--d", type=int, default=64)
-    ap.add_argument("--k", type=int, default=4, help="symmetry/phase3 icin kopru genisligi")
+    ap.add_argument("--k", type=int, default=4, help="bridge width for symmetry/phase3")
     ap.add_argument("--T", type=int, default=4)
     ap.add_argument("--data_root", default="./data")
     ap.add_argument("--out", default="./out")
@@ -397,7 +399,7 @@ def main():
         torch.backends.cudnn.benchmark = False
         torch.use_deterministic_algorithms(True, warn_only=True)
     os.makedirs(a.out, exist_ok=True)
-    print(f"cihaz: {dev}" + (f" ({torch.cuda.get_device_name(0)})" if dev == "cuda" else ""))
+    print(f"device: {dev}" + (f" ({torch.cuda.get_device_name(0)})" if dev == "cuda" else ""))
     data = build_data(a)
     base = Cfg(d=a.d, k=a.k, T=a.T, epochs=a.epochs or Cfg.epochs)
     results, path = [], os.path.join(a.out, f"results_{a.exp}.json")
@@ -412,14 +414,14 @@ def main():
             print(f"[{label} s{seed}] g={r['acc_g']:.3f} l={r['acc_l']:.3f} SI={r['SI']:.3f} "
                   f"cka={r['cka']:.3f} les50={r['les50']:.3f} ({r['sec']}s)", flush=True)
             if r["gains"]:
-                print("   kapi kazanclari (hasar siddeti -> [L->R, R->L], L hasarli):", r["gains"])
+                print("   gate gains (damage severity -> [L->R, R->L], L damaged):", r["gains"])
             with open(path, "w") as fh:
                 json.dump(results, fh, indent=1)
             del net
             if dev == "cuda":
                 torch.cuda.empty_cache()
     summarize(results, COLS["phase3"] if a.exp == "phase3" else COLS["default"])
-    print(f"\nkaydedildi: {path}")
+    print(f"\nsaved: {path}")
 
 
 if __name__ == "__main__":
