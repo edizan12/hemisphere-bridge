@@ -56,14 +56,14 @@ Mean accuracy after silencing a fraction of one hemisphere's hidden units at tes
 | condition    | acc_g | acc_l | les20 | les50 | les80 |
 |--------------|-------|-------|-------|-------|-------|
 | aug=0 fixed  | 0.785 | 0.880 | 0.822 | 0.776 | 0.629 |
-| aug=0 scalar | 0.788 | 0.878 | 0.825 | 0.781 | 0.616 |
-| aug=0 sev    | 0.790 | 0.878 | 0.820 | 0.769 | 0.625 |
+| aug=0 scalar | 0.789 | 0.878 | 0.825 | 0.781 | 0.616 |
+| aug=0 sev    | 0.791 | 0.872 | 0.820 | 0.769 | 0.625 |
 | aug=1 fixed  | 0.785 | 0.847 | 0.814 | 0.801 | 0.764 |
 | aug=1 scalar | 0.784 | 0.848 | 0.812 | 0.802 | 0.760 |
 | aug=1 sev    | 0.787 | 0.885 | 0.828 | 0.820 | 0.776 |
 
-- **Training with damage helps a lot under heavy damage.** At 80% damage, accuracy rises from ~0.63 (aug=0) to ~0.76 (aug=1), in the same direction for all 5 seeds. There is no difference at 20% damage. A side effect: the lesion asymmetry (LI) roughly halves with aug=1, i.e. damage affects both hemispheres more similarly.
-- **The severity-aware gate adds nothing distinguishable.** `aug=1 sev` is ahead of `aug=1 fixed` by roughly +0.015 / +0.019 / +0.012 at les20 / les50 / les80, and ahead in 3 of 5 seeds. Paired t-values are roughly 0.7-1.4 with 4 degrees of freedom (about 2.8 would be needed for p < 0.05), so the difference is within seed noise. The `scalar` gate behaves like `fixed`. The higher clean local accuracy of `aug=1 sev` (0.885 vs. 0.847) is within the seed-to-seed spread (std ~0.04) and is not treated as a finding.
+- **Training with damage helps a lot under heavy damage.** At 80% damage, accuracy rises from ~0.63 (aug=0) to ~0.76 (aug=1), in the same direction for all 5 seeds. There is no difference at 20% damage (paired t = -1.1), while the gain is also clear at 50% (+0.025, t = 5.8) and 80% (+0.135, t = 12.0 for `fixed`). Clean local accuracy tends to drop with damage training in `fixed` (0.880 to 0.847, t = -2.0, below the ~2.8 needed at 4 d.f.), so a small cost is possible but not established. A side effect: the lesion asymmetry (LI) roughly halves with aug=1, i.e. damage affects both hemispheres more similarly.
+- **The severity-aware gate adds nothing distinguishable.** `aug=1 sev` is ahead of `aug=1 fixed` by roughly +0.015 / +0.019 / +0.012 at les20 / les50 / les80, and ahead in 3 to 4 of 5 seeds depending on the lesion level. Paired t-values are 0.7-1.4 with 4 degrees of freedom (about 2.8 would be needed for p < 0.05), so the difference is within seed noise. The `scalar` gate behaves like `fixed`. The higher clean local accuracy of `aug=1 sev` (0.885 vs. 0.847) is within the seed-to-seed spread (std ~0.04) and is not treated as a finding.
 - **The gate learns the opposite of the hypothesis.** The idea was "compete when damage is mild, cooperate when severe", i.e. the intact side should open the channel toward the damaged side as damage grows. With the left hemisphere damaged, the gain from damaged to intact (L->R) rose with severity in 5 of 5 seeds, while the gain from intact to damaged (R->L) fell in 4 of 5 seeds. So the learned strategy is closer to "move the damaged side's information to the intact side, and throttle the flow back". Why this happens is not understood. The gate sees which side is damaged but not which hemisphere is the "global" one, which makes per-seed interpretation hard.
 - Gate gains for `aug=0` rows are meaningless: the severity input is always 0 there, so any variation comes from initialisation.
 
