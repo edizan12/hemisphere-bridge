@@ -6,8 +6,13 @@ A small, reproducible test of a hemisphere-inspired idea: if two identical netwo
 
 1. The narrow bridge does **not** drive specialization; the no-bridge control specializes just as much.
 2. Specialization is seed-dependent. Asymmetric delay or noise can break an exactly symmetric start, but neither decides which side becomes "global".
-3. Training with random damage clearly improves accuracy under heavy damage (80% of one hemisphere silenced: ~0.63 to ~0.76).
+3. Training with random damage clearly improves accuracy under heavy damage (80% of one hemisphere silenced: ~0.62 to ~0.77).
 4. A damage-severity-aware gate is **not** distinguishably better than a fixed bridge, and what it learns is the opposite of the "cooperate when damage is severe" hypothesis.
+
+<img width="794" height="511" alt="image" src="https://github.com/user-attachments/assets/c65f50a9-816f-4e39-a13b-9b58a1b89c49" />
+
+
+*Accuracy (mean of global and local) as a function of the fraction of one hemisphere silenced at test time. Thin dots: individual seeds; thick lines: mean over 5 seeds.*
 
 ## Setup
 
@@ -26,7 +31,7 @@ A small, reproducible test of a hemisphere-inspired idea: if two identical netwo
 - **Lesion index (LI):** test-time silencing of 50% of one hemisphere's hidden units; compares how much each label's accuracy drops when the left vs. right hemisphere is damaged.
 - **Lesion accuracy (les20 / les50 / les80):** mean of global and local accuracy after silencing 20 / 50 / 80% of one hemisphere's hidden units, averaged over the two sides.
 
-5 seeds per condition, 12 epochs, 20k training / 5k test images. Permutation tests are two-sided.
+5 seeds per condition, 12 epochs, 20k training / 5k test images. Permutation tests are two-sided; paired comparisons use a paired t statistic over seeds.
 
 ## Results (5 seeds per condition)
 
@@ -55,17 +60,26 @@ Mean accuracy after silencing a fraction of one hemisphere's hidden units at tes
 
 | condition    | acc_g | acc_l | les20 | les50 | les80 |
 |--------------|-------|-------|-------|-------|-------|
-| aug=0 fixed  | 0.785 | 0.880 | 0.822 | 0.776 | 0.629 |
-| aug=0 scalar | 0.789 | 0.878 | 0.825 | 0.781 | 0.616 |
-| aug=0 sev    | 0.791 | 0.872 | 0.820 | 0.769 | 0.625 |
-| aug=1 fixed  | 0.785 | 0.847 | 0.814 | 0.801 | 0.764 |
-| aug=1 scalar | 0.784 | 0.848 | 0.812 | 0.802 | 0.760 |
-| aug=1 sev    | 0.787 | 0.885 | 0.828 | 0.820 | 0.776 |
+| aug=0 fixed  | 0.786 | 0.868 | 0.817 | 0.770 | 0.624 |
+| aug=0 scalar | 0.791 | 0.885 | 0.825 | 0.780 | 0.628 |
+| aug=0 sev    | 0.789 | 0.863 | 0.812 | 0.769 | 0.633 |
+| aug=1 fixed  | 0.787 | 0.865 | 0.824 | 0.806 | 0.769 |
+| aug=1 scalar | 0.788 | 0.860 | 0.818 | 0.804 | 0.764 |
+| aug=1 sev    | 0.786 | 0.881 | 0.829 | 0.818 | 0.773 |
 
-- **Training with damage helps a lot under heavy damage.** At 80% damage, accuracy rises from ~0.63 (aug=0) to ~0.76 (aug=1), in the same direction for all 5 seeds. There is no difference at 20% damage (paired t = -1.1), while the gain is also clear at 50% (+0.025, t = 5.8) and 80% (+0.135, t = 12.0 for `fixed`). Clean local accuracy tends to drop with damage training in `fixed` (0.880 to 0.847, t = -2.0, below the ~2.8 needed at 4 d.f.), so a small cost is possible but not established. A side effect: the lesion asymmetry (LI) roughly halves with aug=1, i.e. damage affects both hemispheres more similarly.
-- **The severity-aware gate adds nothing distinguishable.** `aug=1 sev` is ahead of `aug=1 fixed` by roughly +0.015 / +0.019 / +0.012 at les20 / les50 / les80, and ahead in 3 to 4 of 5 seeds depending on the lesion level. Paired t-values are 0.7-1.4 with 4 degrees of freedom (about 2.8 would be needed for p < 0.05), so the difference is within seed noise. The `scalar` gate behaves like `fixed`. The higher clean local accuracy of `aug=1 sev` (0.885 vs. 0.847) is within the seed-to-seed spread (std ~0.04) and is not treated as a finding.
-- **The gate learns the opposite of the hypothesis.** The idea was "compete when damage is mild, cooperate when severe", i.e. the intact side should open the channel toward the damaged side as damage grows. With the left hemisphere damaged, the gain from damaged to intact (L->R) rose with severity in 5 of 5 seeds, while the gain from intact to damaged (R->L) fell in 4 of 5 seeds. So the learned strategy is closer to "move the damaged side's information to the intact side, and throttle the flow back". Why this happens is not understood. The gate sees which side is damaged but not which hemisphere is the "global" one, which makes per-seed interpretation hard.
+Paired comparisons over the 5 seeds (about |t| = 2.8 is needed for p < 0.05 with 4 degrees of freedom):
+
+| comparison | acc_l | les20 | les50 | les80 |
+|------------|-------|-------|-------|-------|
+| `aug=1 fixed` minus `aug=0 fixed` | -0.002 (t = -0.1) | +0.007 (t = 0.7) | +0.036 (t = 3.9) | +0.146 (t = 13.1) |
+| `aug=1 sev` minus `aug=1 fixed` | +0.016 (t = 0.8) | +0.005 (t = 0.6) | +0.012 (t = 1.3) | +0.003 (t = 0.2) |
+| `aug=1 scalar` minus `aug=1 fixed` | -0.006 (t = -0.5) | -0.006 (t = -0.8) | -0.003 (t = -0.3) | -0.005 (t = -0.6) |
+
+- **Training with damage helps a lot under heavy damage.** There is no difference at 20% damage, a clear gain at 50% (+0.036, ahead in 5 of 5 seeds) and a large gain at 80% (+0.146, 5 of 5 seeds; all `aug=0` runs end below 0.67, all `aug=1` runs above 0.73). Clean accuracy is not measurably affected.
+- **The severity-aware gate adds nothing distinguishable.** `aug=1 sev` is ahead of `aug=1 fixed` in 3 to 4 of 5 seeds depending on the lesion level, by at most ~0.012, with paired t-values of 0.2-1.3. The `scalar` gate behaves like `fixed`. The higher clean local accuracy of `aug=1 sev` (0.881 vs. 0.865) is within seed-to-seed spread and is not treated as a finding.
+- **The gate learns the opposite of the hypothesis.** The idea was "compete when damage is mild, cooperate when severe", i.e. the intact side should open the channel toward the damaged side as damage grows. With the left hemisphere damaged, the gain from damaged to intact (L->R) rose with severity in 5 of 5 seeds (for example 0.73 to 0.97), while the gain from intact to damaged (R->L) fell in 4 of 5 seeds (for example 0.61 to 0.23); in the fifth it rose slightly (0.85 to 0.88). So the learned strategy is closer to "move the damaged side's information to the intact side, and throttle the flow back". Why this happens is not understood. The gate sees which side is damaged but not which hemisphere is the "global" one, which makes per-seed interpretation hard.
 - Gate gains for `aug=0` rows are meaningless: the severity input is always 0 there, so any variation comes from initialisation.
+- Phase 3 used default (non-deterministic) GPU kernels, so reruns give slightly different numbers. An earlier run of the same experiment gave the same qualitative picture (large benefit of damage training, gate within noise) but different third-digit values; only the numbers above match `results/results_phase3.json`.
 
 ## Caveats
 
@@ -74,13 +88,13 @@ Mean accuracy after silencing a fraction of one hemisphere's hidden units at tes
 - The single-network baseline is not capacity-matched: it has half the convolutional width of the pair but more recurrent parameters.
 - **Phase 3 has no single-network control trained with the same damage.** The robustness gain from `aug=1` is most likely generic damage-robust training (similar to dropout), not specific to the two-hemisphere bridge or to the gate. This is untested.
 - The test-time lesion mask is one fixed random subset of units (seed 0) per damage level and is applied to one hemisphere at a time. Training damage is resampled for every example.
-- **GPU non-determinism incident.** My first symmetry run used default CUDA kernels. In the "identical start, no noise" condition the supposedly symmetric networks diverged (SI 0.057, CKA 0.33) because of tiny floating-point differences amplified by the unstable symmetric state. After enabling deterministic mode (`--deterministic`) the control behaves exactly (SI ~ 0, CKA = 1). The original run is kept as `results/results_symmetry_gpu_nondeterministic.json` for transparency; use the deterministic file. The phase 1 and phase 3 runs used independent initialisations and default kernels.
+- **GPU non-determinism incident.** My first symmetry run used default CUDA kernels. In the "identical start, no noise" condition the supposedly symmetric networks diverged (SI 0.057, CKA 0.33) because of tiny floating-point differences amplified by the unstable symmetric state. After enabling deterministic mode (`--deterministic`) the control behaves exactly (SI ~ 0, CKA = 1). `results/results_symmetry.json` is the deterministic rerun. The phase 1 and phase 3 runs used independent initialisations and default kernels.
 - An earlier single-seed run suggested the bridge reduces specialization; with 5 seeds that was seed noise.
 
 ## Not done yet
 
 - A single network trained with the same random damage (needed to say whether the phase 3 gain is bridge-specific).
-- More seeds for the gate comparison (`aug=1 fixed` vs. `aug=1 sev`); 5 seeds cannot resolve a difference of ~0.015.
+- More seeds for the gate comparison (`aug=1 fixed` vs. `aug=1 sev`); 5 seeds cannot resolve a difference of ~0.01.
 - Longer training, other tasks, parameter-matched baselines, a proper literature review.
 
 ## Reproduce
@@ -94,12 +108,24 @@ python analysis/navon_hemi.py --exp symcheck --seeds 3 --deterministic --out res
 python analysis/navon_hemi.py --exp phase3 --seeds 5 --out results            # lesion training / gate comparison
 
 python analysis/summarize.py results/results_phase1.json --ref no_bridge
-python analysis/summarize.py results/results_symmetry_deterministic.json
+python analysis/summarize.py results/results_symmetry.json
+python analysis/phase3_stats.py results/results_phase3.json                   # phase 3 table, paired t-values, gate gains
+python analysis/plot_phase3.py results/results_phase3.json --out results/phase3_damage.png
 ```
 
-The phase 3 table is printed at the end of the `phase3` run and saved in `results/results_phase3.json`.
+The phase 3 table is also printed at the end of the `phase3` run.
 
 Tested on a GTX 1650 (4 GB), PyTorch 2.14 + CUDA 12.6; a run takes ~15 s (single) to ~35 s (two hemispheres). The script uses the GPU automatically when `torch.cuda.is_available()` is true (first line of output: `device: cuda ...`). MNIST is downloaded automatically to `./data`.
+
+## Results files
+
+| file | experiment |
+|------|------------|
+| `results/results_phase1.json` | bridge-width sweep (independent initialisation) |
+| `results/results_symmetry.json` | symmetry-breaking conditions (deterministic kernels) |
+| `results/results_symcheck.json` | symmetric-start sanity check (SI ~ 0, CKA = 1) |
+| `results/results_phase3.json` | lesion training and gate comparison (30 runs: 6 conditions x 5 seeds) |
+| `results/phase3_damage.png` | figure generated from `results_phase3.json` |
 
 ## Related work
 
