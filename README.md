@@ -4,13 +4,12 @@ A small, reproducible test of a hemisphere-inspired idea: if two identical netwo
 
 **Status:** early, small-scale exploration. Not a finished study, and not a claim of novelty (see [Related work](#related-work)). Main findings, all at 5 seeds per condition:
 
-1. The narrow bridge does **not** drive specialization; the no-bridge control specializes just as much.
+1. Bridge width does **not** measurably change specialization: the no-bridge control is statistically indistinguishable from every bridge size (permutation p > 0.5), and seed-to-seed variance is large.
 2. Specialization is seed-dependent. Asymmetric delay or noise can break an exactly symmetric start, but neither decides which side becomes "global".
 3. Training with random damage clearly improves accuracy under heavy damage (80% of one hemisphere silenced: ~0.62 to ~0.77).
 4. A damage-severity-aware gate is **not** distinguishably better than a fixed bridge, and what it learns is the opposite of the "cooperate when damage is severe" hypothesis.
 
-<img width="794" height="511" alt="image" src="https://github.com/user-attachments/assets/c65f50a9-816f-4e39-a13b-9b58a1b89c49" />
-
+![Accuracy under lesion](results/phase3_damage.png)
 
 *Accuracy (mean of global and local) as a function of the fraction of one hemisphere silenced at test time. Thin dots: individual seeds; thick lines: mean over 5 seeds.*
 
@@ -41,7 +40,7 @@ All numbers are mean +- std over seeds; full tables via `analysis/summarize.py`.
 
 - The task is learned: global accuracy ~0.79, local ~0.88 for two-hemisphere models.
 - Specialization appears without assigned roles: |SI| of roughly 0.2-0.35 across conditions, ranging from ~0 to ~0.5 across individual seeds.
-- **The narrow bridge does not drive it.** The no-bridge control specializes just as much (SI 0.24 +- 0.27) as k = 2/4/8/16 (0.33 / 0.25 / 0.23 / 0.21; permutation p = 0.53-0.99 vs. no bridge). A full-width bridge trends lower (SI 0.13 +- 0.11) but this is not significant at 5 seeds.
+- **Bridge width does not change it measurably.** The no-bridge control (SI 0.24 +- 0.27) is not distinguishable from k = 2/4/8/16 (0.33 / 0.25 / 0.23 / 0.21; permutation p = 0.53-0.99). A full-width bridge trends lower (SI 0.13 +- 0.11), but this is not significant at 5 seeds. With 5 seeds and this variance, only large effects would be detectable.
 - Which side takes which role is random: it varies with the seed (initialisation), not with the bridge width; signs split roughly evenly.
 
 ### Symmetry breaking
